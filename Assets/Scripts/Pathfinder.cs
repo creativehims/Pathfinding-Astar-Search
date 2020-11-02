@@ -10,7 +10,7 @@ public class Pathfinder : MonoBehaviour
     Graph _graph;
     GraphView _graphView;
 
-    Queue<Node> _frontierNodes;
+    PriorityQueue<Node> _frontierNodes;
     List<Node> _exploredNodes;
     List<Node> _pathNodes;
 
@@ -33,7 +33,9 @@ public class Pathfinder : MonoBehaviour
     public enum Mode
     {
         BreadthFirstSearch = 0,
-        Dijkstra = 1
+        Dijkstra = 1,
+        GreedyBestFirst = 2,
+        AStar = 3
     }
 
     public Mode mode = Mode.BreadthFirstSearch;
@@ -59,7 +61,7 @@ public class Pathfinder : MonoBehaviour
 
         ShowColors(graphView, start, goal);
 
-        _frontierNodes = new Queue<Node>();
+        _frontierNodes = new PriorityQueue<Node>();
         _frontierNodes.Enqueue(start);
 
         _exploredNodes = new List<Node>();
@@ -78,7 +80,7 @@ public class Pathfinder : MonoBehaviour
         _startNode.distanceTravelled = 0;
     }
 
-    void ShowColors(GraphView graphView, Node start, Node goal)
+    void ShowColors(GraphView graphView, Node start, Node goal, bool lerpColor = false, float lerpValue = 0.5f)
     {
         if (graphView == null || start == null || goal == null)
         {
@@ -87,17 +89,17 @@ public class Pathfinder : MonoBehaviour
 
         if (_frontierNodes != null)
         {
-            graphView.ColorNodes(_frontierNodes.ToList(), frontierColor);
+            graphView.ColorNodes(_frontierNodes.ToList(), frontierColor, lerpColor, lerpValue);
         }
 
         if (_exploredNodes != null)
         {
-            graphView.ColorNodes(_exploredNodes, exploredColor);
+            graphView.ColorNodes(_exploredNodes, exploredColor, lerpColor, lerpValue);
         }
 
         if (_pathNodes != null && _pathNodes.Count > 0)
         {
-            graphView.ColorNodes(_pathNodes, pathColor);
+            graphView.ColorNodes(_pathNodes, pathColor, lerpColor, lerpValue * 2f);
         }
 
         NodeView startNodeView = graphView.nodeViews[start.xIndex, start.yIndex];
@@ -115,14 +117,14 @@ public class Pathfinder : MonoBehaviour
         }
     }
 
-    void ShowColors()
+    void ShowColors(bool lerpColor = false, float lerpValue = 0.5f)
     {
-        ShowColors(_graphView, _startNode, _goalNode);
+        ShowColors(_graphView, _startNode, _goalNode, lerpColor, lerpValue);
     }
 
     public IEnumerator SearchRoutine(float timeStep = 0.1f)
     {
-        float timeStart = Time.time;
+        float timeStart = Time.realtimeSinceStartup;
 
         yield return null;
 
@@ -146,6 +148,14 @@ public class Pathfinder : MonoBehaviour
                 {
                     ExpandFrontierDijkstra(currentNode);
                 }
+                else if (mode == Mode.GreedyBestFirst)
+                {
+                    ExpandFrontierGreedyBestFirst(currentNode);
+                }
+                else
+                {
+                    ExpandFrontierAStar(currentNode);
+                }
 
 
                 if (_frontierNodes.Contains(_goalNode))
@@ -161,7 +171,7 @@ public class Pathfinder : MonoBehaviour
 
                 if (showIterations)
                 {
-                    ShowDiagnostics();
+                    ShowDiagnostics(true, 0.5f);
                     yield return new WaitForSeconds(timeStep);
                 }
             }
@@ -171,15 +181,15 @@ public class Pathfinder : MonoBehaviour
             }
         }
 
-        ShowDiagnostics();
-        Debug.Log("PATHFINDER SearchRoutine: elapsed time = " + (Time.time - timeStart).ToString() + " seconds");
+        ShowDiagnostics(true, 0.5f);
+        Debug.Log("PATHFINDER SearchRoutine: elapsed time = " + (Time.realtimeSinceStartup - timeStart).ToString() + " seconds");
     }
 
-    private void ShowDiagnostics()
+    private void ShowDiagnostics(bool lerpColor = false, float lerpValue = 0.5f)
     {
         if (showColors)
         {
-            ShowColors();
+            ShowColors(lerpColor, lerpValue);
         }
 
         if (_graphView && showArrows)
@@ -202,10 +212,11 @@ public class Pathfinder : MonoBehaviour
                 if (!_exploredNodes.Contains(node.neighbors[i]) && !_frontierNodes.Contains(node.neighbors[i]))
                 {
                     float distanceToNeighbor = _graph.GetNodeDistance(node, node.neighbors[i]);
-                    float newDistanceTravelled = distanceToNeighbor + node.distanceTravelled;
+                    float newDistanceTravelled = distanceToNeighbor + node.distanceTravelled + (int)node.nodeType;
                     node.neighbors[i].distanceTravelled = newDistanceTravelled;
 
                     node.neighbors[i].previous = node;
+                    node.neighbors[i].priority = _exploredNodes.Count;
                     _frontierNodes.Enqueue(node.neighbors[i]);
                 }
             }
@@ -221,7 +232,7 @@ public class Pathfinder : MonoBehaviour
                 if (!_exploredNodes.Contains(node.neighbors[i]))
                 {
                     float distanceToNeighbor = _graph.GetNodeDistance(node, node.neighbors[i]);
-                    float newDistanceTravelled = distanceToNeighbor + node.distanceTravelled;
+                    float newDistanceTravelled = distanceToNeighbor + node.distanceTravelled + (int)node.nodeType;
 
                     if (float.IsPositiveInfinity(node.neighbors[i].distanceTravelled) || newDistanceTravelled < node.neighbors[i].distanceTravelled)
                     {
@@ -231,8 +242,61 @@ public class Pathfinder : MonoBehaviour
 
                     if (!_frontierNodes.Contains(node.neighbors[i]))
                     {
+                        node.neighbors[i].priority = node.neighbors[i].distanceTravelled;
                         _frontierNodes.Enqueue(node.neighbors[i]);
                     }
+                }
+            }
+        }
+    }
+
+    void ExpandFrontierAStar(Node node)
+    {
+        if (node != null)
+        {
+            for (int i = 0; i < node.neighbors.Count; i++)
+            {
+                if (!_exploredNodes.Contains(node.neighbors[i]))
+                {
+                    float distanceToNeighbor = _graph.GetNodeDistance(node, node.neighbors[i]);
+                    float newDistanceTravelled = distanceToNeighbor + node.distanceTravelled + (int)node.nodeType;
+
+                    if (float.IsPositiveInfinity(node.neighbors[i].distanceTravelled) || newDistanceTravelled < node.neighbors[i].distanceTravelled)
+                    {
+                        node.neighbors[i].previous = node;
+                        node.neighbors[i].distanceTravelled = newDistanceTravelled;
+                    }
+
+                    if (!_frontierNodes.Contains(node.neighbors[i]) && _graph != null)
+                    {
+                        float distanceToGoal = _graph.GetNodeDistance(node.neighbors[i], _goalNode);
+                        node.neighbors[i].priority = node.neighbors[i].distanceTravelled + distanceToGoal;
+                        _frontierNodes.Enqueue(node.neighbors[i]);
+                    }
+                }
+            }
+        }
+    }
+
+    void ExpandFrontierGreedyBestFirst(Node node)
+    {
+        if (node != null)
+        {
+            for (int i = 0; i < node.neighbors.Count; i++)
+            {
+                if (!_exploredNodes.Contains(node.neighbors[i]) && !_frontierNodes.Contains(node.neighbors[i]))
+                {
+                    float distanceToNeighbor = _graph.GetNodeDistance(node, node.neighbors[i]);
+                    float newDistanceTravelled = distanceToNeighbor + node.distanceTravelled + (int)node.nodeType;
+                    node.neighbors[i].distanceTravelled = newDistanceTravelled;
+
+                    node.neighbors[i].previous = node;
+
+                    if (_graph != null)
+                    {
+                        node.neighbors[i].priority = _graph.GetNodeDistance(node.neighbors[i], _goalNode);
+                    }
+                    _frontierNodes.Enqueue(node.neighbors[i]);
                 }
             }
         }
@@ -246,6 +310,7 @@ public class Pathfinder : MonoBehaviour
         {
             return path;
         }
+
         path.Add(endNode);
 
         Node currentNode = endNode.previous;

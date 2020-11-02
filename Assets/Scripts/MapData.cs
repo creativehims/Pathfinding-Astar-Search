@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System;
 using UnityEngine.SceneManagement;
+using System.Linq;
 
 public class MapData : MonoBehaviour
 {
@@ -14,8 +15,17 @@ public class MapData : MonoBehaviour
 
     public string resourcePath = "Mapdata";
 
-    private void Awake()
+    public Color32 openColor = Color.white;
+    public Color32 blockedColor = Color.black;
+    public Color32 lightTerrainColor = new Color32(124, 194, 78, 255);
+    public Color32 mediumTerrainColor = new Color32(252, 255, 52, 255);
+    public Color32 heavyTerrainColor = new Color32(255, 129, 12, 255);
+
+    static Dictionary<Color32, NodeType> terrainLookupTable = new Dictionary<Color32, NodeType>();
+
+    void Awake()
     {
+        SetupLookupTable();
         string levelName = SceneManager.GetActiveScene().name;
 
         if (textureMap == null)
@@ -60,21 +70,22 @@ public class MapData : MonoBehaviour
 
                 for (int x = 0; x < texture.width; x++)
                 {
-                    if (texture.GetPixel(x, y) == Color.black)
+                    Color pixelColor = texture.GetPixel(x, y);
+
+                    if (terrainLookupTable.ContainsKey(pixelColor))
                     {
-                        newLine += "1";
-                    }
-                    else if (texture.GetPixel(x, y) == Color.white)
-                    {
-                        newLine += "0";
+                        NodeType nodeType = terrainLookupTable[pixelColor];
+                        int nodeTypeNum = (int)nodeType;
+                        newLine += nodeTypeNum;
                     }
                     else
                     {
-                        newLine += " ";
+                        newLine += "0";
                     }
                 }
 
                 lines.Add(newLine);
+                //Debug.Log(newLine);
             }
         }
 
@@ -116,7 +127,7 @@ public class MapData : MonoBehaviour
         {
             for (int x = 0; x < width; x++)
             {
-                if (lines[y].Length > x)
+                if (x < lines[y].Length)
                 {
                     map[x, y] = (int)Char.GetNumericValue(lines[y][x]);
                 }
@@ -124,5 +135,24 @@ public class MapData : MonoBehaviour
         }
 
         return map;
+    }
+
+    void SetupLookupTable()
+    {
+        terrainLookupTable.Add(openColor, NodeType.Open);
+        terrainLookupTable.Add(blockedColor, NodeType.Blocked);
+        terrainLookupTable.Add(lightTerrainColor, NodeType.LightTerrain);
+        terrainLookupTable.Add(mediumTerrainColor, NodeType.MediumTerrain);
+        terrainLookupTable.Add(heavyTerrainColor, NodeType.HeavyTerrain);
+    }
+
+    public static Color GetColorFromNodeType(NodeType nodeType)
+    {
+        if (terrainLookupTable.ContainsValue(nodeType))
+        {
+            Color colorKey = terrainLookupTable.FirstOrDefault(x => x.Value == nodeType).Key;
+            return colorKey;
+        }
+        return Color.white;
     }
 }
